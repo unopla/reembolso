@@ -14,8 +14,25 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+import os
+import sys
 
-CONFIG_FILE = "config.json"
+def get_app_dir():
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    app_dir = os.path.join(base, "Reembolso")
+    os.makedirs(app_dir, exist_ok=True)
+    return app_dir
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+
+
+CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
 HORARIO_IDA = "07:40"
 HORARIO_VOLTA = "17:15"
 
