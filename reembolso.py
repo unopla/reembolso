@@ -1,21 +1,16 @@
+import os
+import sys
 import json
-import os
 from datetime import date, timedelta
-from tkinter import *
-from tkinter import messagebox, simpledialog
+from tkinter import Tk, Button, messagebox, simpledialog
 from docx import Document
-import sys
-import os
 
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+# =========================
+# CAMINHOS E CONFIGURAÇÕES
+# =========================
 
-import os
-import sys
+HORARIO_IDA = "07:40"
+HORARIO_VOLTA = "17:15"
 
 def get_app_dir():
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
@@ -23,6 +18,13 @@ def get_app_dir():
     os.makedirs(app_dir, exist_ok=True)
     return app_dir
 
+CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
+
+def get_docs_dir():
+    pasta = os.path.join(os.path.expanduser("~"), "Documents", "Reembolsos")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
 def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
@@ -30,11 +32,9 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-
-
-CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
-HORARIO_IDA = "07:40"
-HORARIO_VOLTA = "17:15"
+# =========================
+# CONFIG (DADOS FIXOS)
+# =========================
 
 def carregar_config():
     if os.path.exists(CONFIG_FILE):
@@ -63,14 +63,35 @@ def pedir_dados():
 
     messagebox.showinfo("OK", "Dados salvos com sucesso!")
 
+# =========================
+# DATAS
+# =========================
+
 def dias_uteis(mes, ano):
     d = date(ano, mes, 1)
     dias = []
     while d.month == mes:
-        if d.weekday() < 5:
+        if d.weekday() < 5:  # segunda a sexta
             dias.append(d)
         d += timedelta(days=1)
     return dias
+
+# =========================
+# DOCUMENTO
+# =========================
+
+def preencher_tabela(tabela, dias):
+    linha = 1  # pula cabeçalho
+    for dia in dias:
+        if linha >= len(tabela.rows):
+            tabela.add_row()
+
+        cells = tabela.rows[linha].cells
+        cells[0].text = dia.strftime("%d/%m/%Y")
+        cells[1].text = HORARIO_IDA
+        cells[2].text = HORARIO_VOLTA
+        cells[3].text = ""  # assinatura
+        linha += 1
 
 def gerar_documento():
     config = carregar_config()
@@ -78,7 +99,7 @@ def gerar_documento():
         messagebox.showerror("Erro", "Cadastre os dados pessoais primeiro.")
         return
 
-    mes = simpledialog.askinteger("Mês", "Digite o mês (1-12):")
+    mes = simpledialog.askinteger("Mês", "Digite o mês (1-12):", minvalue=1, maxvalue=12)
     ano = simpledialog.askinteger("Ano", "Digite o ano:")
 
     if not mes or not ano:
@@ -86,49 +107,57 @@ def gerar_documento():
 
     doc = Document(resource_path("modelo.docx"))
 
-
-    texto = doc.paragraphs[0].text
-    texto = texto.replace("__________________", config["nome"])
-    texto = texto.replace("CPF________________________", f"CPF {config['cpf']}")
-    texto = texto.replace(
-        "_____________________________________",
-        config["instituicao"]
+    # TEXTO INICIAL
+    p = doc.paragraphs[0]
+    p.text = (
+        f"Eu, {config['nome']}, CPF {config['cpf']}, declaro, para fins de "
+        f"recebimento de auxílio, que frequentei presencialmente as aulas na "
+        f"instituição de ensino {config['instituicao']} e utilizei de transporte, "
+        f"conforme datas e horários abaixo."
     )
-    doc.paragraphs[0].text = texto
 
+    # REEMBOLSO
     doc.paragraphs[1].text = f"Reembolso referente ao mês: {mes}/{ano}"
 
-    tabela = doc.add_table(rows=1, cols=4)
-    hdr = tabela.rows[0].cells
-    hdr[0].text = "DATA"
-    hdr[1].text = "HORÁRIO IDA"
-    hdr[2].text = "HORÁRIO VOLTA"
-    hdr[3].text = "ASSINATURA"
+    # TABELA EXISTENTE
+    tabela = doc.tables[0]
 
+    dias_confirmados = []
     for dia in dias_uteis(mes, ano):
-        resp = messagebox.askyesno(
+        if messagebox.askyesno(
             "Presença",
             f"Você foi no dia {dia.strftime('%d/%m/%Y')}?"
-        )
-        if resp:
-            row = tabela.add_row().cells
-            row[0].text = dia.strftime("%d/%m/%Y")
-            row[1].text = HORARIO_IDA
-            row[2].text = HORARIO_VOLTA
-            row[3].text = ""
+        ):
+            dias_confirmados.append(dia)
 
-    nome_arquivo = f"Reembolso_{mes}_{ano}.docx"
-    doc.save(nome_arquivo)
+    if not dias_confirmados:
+        messagebox.showinfo("Aviso", "Nenhum dia selecionado.")
+        return
 
-    messagebox.showinfo("Sucesso", f"Arquivo criado:\n{nome_arquivo}")
+    preencher_tabela(tabela, dias_confirmados)
 
+    caminho = os.path.join(
+        get_docs_dir(),
+        f"Reembolso_{mes}_{ano}.docx"
+    )
+    doc.save(caminho)
+
+    messagebox.showinfo(
+        "Sucesso",
+        f"Arquivo gerado em:\n{caminho}"
+    )
+
+# =========================
 # INTERFACE
+# =========================
+
 root = Tk()
 root.title("Gerador de Reembolso")
-root.geometry("300x200")
+root.geometry("300x220")
+root.resizable(False, False)
 
-Button(root, text="Gerar Reembolso", width=25, command=gerar_documento).pack(pady=20)
-Button(root, text="Alterar dados pessoais", width=25, command=pedir_dados).pack()
+Button(root, text="Gerar Reembolso", width=30, command=gerar_documento).pack(pady=20)
+Button(root, text="Alterar dados pessoais", width=30, command=pedir_dados).pack()
 
 if not carregar_config():
     pedir_dados()
